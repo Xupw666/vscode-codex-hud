@@ -1,0 +1,175 @@
+{
+  "name": "codex-hud",
+  "displayName": "Codex HUD",
+  "description": "A VS Code companion panel for Codex context management and usage visualization.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "icon": "media/codex.svg",
+  "license": "UNLICENSED",
+  "keywords": [
+    "codex",
+    "context",
+    "usage",
+    "statusbar",
+    "vscode"
+  ],
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "scripts": {
+    "check": "node --check extension.js && node --check media/view.js"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:codexHud.dashboard",
+    "onCommand:codexHud.openPanel",
+    "onCommand:codexHud.refreshUsage",
+    "onCommand:codexHud.captureSelection",
+    "onCommand:codexHud.setSessionUsage",
+    "onCommand:codexHud.setWeeklyUsage",
+    "onCommand:codexHud.clearContext"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexHud.openPanel",
+        "category": "Codex HUD",
+        "title": "Open Panel"
+      },
+      {
+        "command": "codexHud.captureSelection",
+        "category": "Codex HUD",
+        "title": "Capture Selection as Context"
+      },
+      {
+        "command": "codexHud.refreshUsage",
+        "category": "Codex HUD",
+        "title": "Refresh Usage from Codex"
+      },
+      {
+        "command": "codexHud.setSessionUsage",
+        "category": "Codex HUD",
+        "title": "Set Session Usage"
+      },
+      {
+        "command": "codexHud.setWeeklyUsage",
+        "category": "Codex HUD",
+        "title": "Set Weekly Usage"
+      },
+      {
+        "command": "codexHud.clearContext",
+        "category": "Codex HUD",
+        "title": "Clear Stored Context"
+      }
+    ],
+    "configuration": {
+      "title": "Codex HUD",
+      "properties": {
+        "codexHud.session.usedPercent": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current session usage percentage."
+        },
+        "codexHud.session.resetAt": {
+          "type": "string",
+          "default": "",
+          "description": "Free-form label for the current session reset time."
+        },
+        "codexHud.weekly.usedPercent": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current week usage percentage."
+        },
+        "codexHud.weekly.resetAt": {
+          "type": "string",
+          "default": "",
+          "description": "Free-form label for the weekly reset time."
+        },
+        "codexHud.extraUsageEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether extra usage is enabled."
+        },
+        "codexHud.extraUsageLabel": {
+          "type": "string",
+          "default": "Extra usage not enabled",
+          "description": "Description shown for extra usage status."
+        },
+        "codexHud.contextWindow.limitTokens": {
+          "type": "number",
+          "default": 32000,
+          "minimum": 1000,
+          "description": "Estimated context window limit in tokens."
+        },
+        "codexHud.contextWindow.baseTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Reserved tokens for prompts or hidden context not managed by this panel."
+        },
+        "codexHud.contextWindow.warnAtPercent": {
+          "type": "number",
+          "default": 75,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Warning threshold for context window usage."
+        },
+        "codexHud.tokenEstimateCharsPerToken": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 12,
+          "description": "Rough token estimation ratio used for background context entries."
+        },
+        "codexHud.openPanelOnFirstRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a one-time install prompt that opens the Codex HUD bottom panel."
+        },
+        "codexHud.autoSyncFromCodexRollouts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically read real usage and token data from the latest local Codex rollout."
+        },
+        "codexHud.rolloutRefreshSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "How often Codex HUD refreshes rollout-derived usage data."
+        },
+        "codexHud.codexHomePath": {
+          "type": "string",
+          "default": "~/.codex",
+          "description": "Path to the local Codex home directory used for rollout history."
+        }
+      }
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "codexHudPanel",
+          "title": "Codex HUD",
+          "icon": "media/codex.svg"
+        }
+      ]
+    },
+    "views": {
+      "codexHudPanel": [
+        {
+          "type": "webview",
+          "id": "codexHud.dashboard",
+          "name": "Codex HUD"
+        }
+      ]
+    }
+  }
+}
