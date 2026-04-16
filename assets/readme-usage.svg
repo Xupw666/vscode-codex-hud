@@ -1,0 +1,49 @@
+<svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="90" y1="20" x2="1180" y2="740" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E2128"/>
+      <stop offset="1" stop-color="#111318"/>
+    </linearGradient>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#AEB4FF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#D2B48C" stop-opacity="0.14"/>
+    </linearGradient>
+    <linearGradient id="ok2" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#6FD39B"/>
+      <stop offset="1" stop-color="#B8F2CD"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="760" rx="28" fill="url(#bg2)"/>
+  <rect x="32" y="28" width="1216" height="704" rx="24" fill="#181B20" stroke="rgba(255,255,255,0.08)"/>
+  <text x="72" y="92" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="20" letter-spacing="2">USAGE</text>
+
+  <g transform="translate(70 128)">
+    <rect width="1140" height="190" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="0" y="0" width="1140" height="190" rx="24" fill="url(#hero)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">USAGE SOURCE</text>
+    <text x="30" y="88" fill="#F2F4F8" font-family="Arial, sans-serif" font-size="40" font-weight="700">Live data from your latest Codex rollout</text>
+    <text x="30" y="130" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="28">Auto-synced from rollout-2026-04-16T13-44-03.jsonl</text>
+    <rect x="30" y="144" width="120" height="28" rx="14" fill="#20232A" stroke="rgba(255,255,255,0.08)"/>
+    <text x="52" y="164" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="18">Plan: plus</text>
+    <text x="860" y="130" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="24">Last synced: 2026-04-16 15:10</text>
+  </g>
+
+  <g transform="translate(70 344)">
+    <rect width="1140" height="310" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">UPDATE USAGE</text>
+    <rect x="30" y="74" width="520" height="74" rx="16" fill="#111319" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="590" y="74" width="520" height="74" rx="16" fill="#111319" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="30" y="170" width="520" height="74" rx="16" fill="#111319" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="590" y="170" width="520" height="74" rx="16" fill="#111319" stroke="rgba(255,255,255,0.08)"/>
+    <text x="44" y="104" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="22">Session remaining %</text>
+    <text x="604" y="104" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="22">Session resets at</text>
+    <text x="44" y="200" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="22">Week remaining %</text>
+    <text x="604" y="200" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="22">Week resets at</text>
+    <text x="44" y="132" fill="#F2F4F8" font-family="Arial, sans-serif" font-size="28">8</text>
+    <text x="604" y="132" fill="#F2F4F8" font-family="Arial, sans-serif" font-size="28">17:42 (Asia/Shanghai)</text>
+    <text x="44" y="228" fill="#F2F4F8" font-family="Arial, sans-serif" font-size="28">76</text>
+    <text x="604" y="228" fill="#F2F4F8" font-family="Arial, sans-serif" font-size="28">Apr 19 14:10 (Asia/Shanghai)</text>
+    <rect x="30" y="262" width="242" height="30" rx="15" fill="url(#ok2)"/>
+    <text x="286" y="284" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="24">Refresh from Codex</text>
+  </g>
+</svg>

@@ -6,6 +6,24 @@
 - a bottom panel view for usage bars and quick config
 - a background-context manager for storing reusable notes/snippets
 
+Codex HUD is designed to make Codex quota and context usage visible without leaving VS Code. It gives you a compact HUD for session, week, and thread context state while keeping reusable background notes close at hand.
+
+## Preview
+
+![Codex HUD overview](assets/readme-overview.svg)
+
+_Top-level HUD cards for context, session, and weekly remaining quota._
+
+![Codex HUD usage](assets/readme-usage.svg)
+
+_Usage source and refresh workflow inside the Codex HUD panel._
+
+![Codex HUD status bar](assets/readme-statusbar.svg)
+
+_Compact status bar summary for quick quota checks while you work._
+
+Repository social preview asset: `assets/social-preview.png`
+
 ## What this first version does
 
 - Shows a status bar entry like `Codex S:42% W:18% Ctx:36%`

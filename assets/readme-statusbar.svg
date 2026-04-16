@@ -1,0 +1,7 @@
+<svg width="1280" height="220" viewBox="0 0 1280 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="220" rx="24" fill="#181B20"/>
+  <rect x="24" y="28" width="1232" height="164" rx="18" fill="#101215" stroke="rgba(255,255,255,0.08)"/>
+  <text x="58" y="122" fill="#F6F7FB" font-family="Arial, sans-serif" font-size="42" font-weight="700">Codex HUD status bar</text>
+  <rect x="510" y="72" width="694" height="72" rx="18" fill="#6D560E"/>
+  <text x="540" y="118" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="36" font-weight="700">S:■□□□□ 8%   W:■■■■□ 76%   C:■■□□□ 44%</text>
+</svg>

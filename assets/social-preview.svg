@@ -1,0 +1,71 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="spbg" x1="120" y1="20" x2="1120" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#232733"/>
+      <stop offset="1" stop-color="#121418"/>
+    </linearGradient>
+    <linearGradient id="glowA" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#AEB4FF" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#AEB4FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="glowB" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#D2B48C" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#D2B48C" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ok3" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#6FD39B"/>
+      <stop offset="1" stop-color="#B8F2CD"/>
+    </linearGradient>
+    <linearGradient id="warn3" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#FFD38B"/>
+      <stop offset="1" stop-color="#D2B48C"/>
+    </linearGradient>
+    <linearGradient id="danger3" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#FF8B8B"/>
+      <stop offset="1" stop-color="#FFC3C3"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#spbg)"/>
+  <circle cx="1110" cy="108" r="220" fill="url(#glowA)"/>
+  <circle cx="170" cy="580" r="240" fill="url(#glowB)"/>
+
+  <text x="76" y="140" fill="#F6F7FB" font-family="Arial, sans-serif" font-size="76" font-weight="700">Codex HUD</text>
+  <text x="76" y="198" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="30">Visual context and quota HUD for Codex in VS Code</text>
+  <text x="76" y="254" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="26">Track context remaining, session quota, and weekly quota at a glance.</text>
+
+  <g transform="translate(74 322)">
+    <rect width="520" height="220" rx="24" fill="#171A1F" stroke="rgba(255,255,255,0.08)"/>
+    <text x="28" y="40" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">CONTEXT REMAINING</text>
+    <text x="28" y="112" fill="#F6C177" font-family="Arial, sans-serif" font-size="56" font-weight="700">44%</text>
+    <text x="294" y="112" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="28">44% left</text>
+    <rect x="28" y="136" width="464" height="18" rx="9" fill="rgba(255,255,255,0.16)"/>
+    <rect x="28" y="136" width="204" height="18" rx="9" fill="url(#warn3)"/>
+    <text x="28" y="190" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="26">112936 / 258400 tokens left</text>
+  </g>
+
+  <g transform="translate(642 118)">
+    <rect width="562" height="424" rx="28" fill="#181B20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="34" y="52" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">STATUS</text>
+
+    <g transform="translate(34 84)">
+      <rect width="494" height="96" rx="18" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+      <text x="22" y="30" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="14" letter-spacing="2">SESSION REMAINING</text>
+      <text x="22" y="68" fill="#FF8B8B" font-family="Arial, sans-serif" font-size="34" font-weight="700">8%</text>
+      <rect x="120" y="52" width="346" height="12" rx="6" fill="rgba(255,255,255,0.16)"/>
+      <rect x="120" y="52" width="28" height="12" rx="6" fill="url(#danger3)"/>
+    </g>
+
+    <g transform="translate(34 200)">
+      <rect width="494" height="96" rx="18" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+      <text x="22" y="30" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="14" letter-spacing="2">WEEK REMAINING</text>
+      <text x="22" y="68" fill="#6FD39B" font-family="Arial, sans-serif" font-size="34" font-weight="700">76%</text>
+      <rect x="120" y="52" width="346" height="12" rx="6" fill="rgba(255,255,255,0.16)"/>
+      <rect x="120" y="52" width="266" height="12" rx="6" fill="url(#ok3)"/>
+    </g>
+
+    <g transform="translate(34 316)">
+      <rect width="494" height="74" rx="16" fill="#101215"/>
+      <text x="20" y="46" fill="#F6F7FB" font-family="Arial, sans-serif" font-size="28" font-weight="700">S:■□□□□ 8%   W:■■■■□ 76%   C:■■□□□ 44%</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,70 @@
+<svg width="1280" height="760" viewBox="0 0 1280 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="1160" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20232B"/>
+      <stop offset="1" stop-color="#121418"/>
+    </linearGradient>
+    <linearGradient id="ok" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#6FD39B"/>
+      <stop offset="1" stop-color="#B8F2CD"/>
+    </linearGradient>
+    <linearGradient id="warn" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#FFD38B"/>
+      <stop offset="1" stop-color="#D2B48C"/>
+    </linearGradient>
+    <linearGradient id="danger" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#FF8B8B"/>
+      <stop offset="1" stop-color="#FFC3C3"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="760" rx="28" fill="url(#bg)"/>
+  <rect x="32" y="28" width="1216" height="704" rx="24" fill="#181B20" stroke="rgba(255,255,255,0.08)"/>
+  <text x="72" y="92" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="20" letter-spacing="2">STATUS</text>
+  <text x="190" y="92" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="20" letter-spacing="2">CONTEXT</text>
+  <text x="325" y="92" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="20" letter-spacing="2">USAGE</text>
+  <text x="442" y="92" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="20" letter-spacing="2">CONFIG</text>
+
+  <g transform="translate(70 128)">
+    <rect width="362" height="270" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">CONTEXT REMAINING</text>
+    <text x="30" y="132" fill="#F6C177" font-family="Arial, sans-serif" font-size="62" font-weight="700">44%</text>
+    <text x="252" y="132" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="34">44% left</text>
+    <rect x="30" y="166" width="302" height="18" rx="9" fill="rgba(255,255,255,0.16)"/>
+    <rect x="30" y="166" width="133" height="18" rx="9" fill="url(#warn)"/>
+    <text x="30" y="236" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="38">112936/258400 tokens left</text>
+  </g>
+
+  <g transform="translate(458 128)">
+    <rect width="362" height="270" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">SESSION REMAINING</text>
+    <text x="30" y="132" fill="#FF8B8B" font-family="Arial, sans-serif" font-size="62" font-weight="700">8%</text>
+    <text x="252" y="132" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="34">8% left</text>
+    <rect x="30" y="166" width="302" height="18" rx="9" fill="rgba(255,255,255,0.16)"/>
+    <rect x="30" y="166" width="24" height="18" rx="9" fill="url(#danger)"/>
+    <text x="30" y="236" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="38">17:42 (Asia/Shanghai)</text>
+  </g>
+
+  <g transform="translate(846 128)">
+    <rect width="362" height="270" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">WEEK REMAINING</text>
+    <text x="30" y="132" fill="#6FD39B" font-family="Arial, sans-serif" font-size="62" font-weight="700">76%</text>
+    <text x="228" y="132" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="34">76% left</text>
+    <rect x="30" y="166" width="302" height="18" rx="9" fill="rgba(255,255,255,0.16)"/>
+    <rect x="30" y="166" width="230" height="18" rx="9" fill="url(#ok)"/>
+    <text x="30" y="212" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="38">Apr 19 14:10</text>
+    <text x="30" y="248" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="38">(Asia/Shanghai)</text>
+  </g>
+
+  <g transform="translate(70 434)">
+    <rect width="1138" height="238" rx="24" fill="#1A1C20" stroke="rgba(255,255,255,0.08)"/>
+    <text x="30" y="44" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="18" letter-spacing="2">BACKGROUND PACK</text>
+    <rect x="30" y="70" width="98" height="42" rx="21" fill="#20232A" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="144" y="70" width="118" height="42" rx="21" fill="#20232A" stroke="rgba(255,255,255,0.08)"/>
+    <rect x="278" y="70" width="108" height="42" rx="21" fill="#20232A" stroke="rgba(255,255,255,0.08)"/>
+    <text x="48" y="98" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="24">0 items</text>
+    <text x="168" y="98" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="24">0 pinned</text>
+    <text x="304" y="98" fill="#D7DCEA" font-family="Arial, sans-serif" font-size="24">0 tokens</text>
+    <rect x="30" y="132" width="1078" height="74" rx="20" fill="#171A1F" stroke="rgba(255,255,255,0.10)" stroke-dasharray="8 8"/>
+    <text x="250" y="179" fill="#A8AFBD" font-family="Arial, sans-serif" font-size="32">No background items yet. Capture a selection or add a note.</text>
+  </g>
+</svg>
