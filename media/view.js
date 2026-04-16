@@ -75,26 +75,17 @@
     const previewItems = items.slice(0, 3);
     const hasContextItems = items.length > 0;
     return `
-      <div class="card intro">
-        <div class="eyebrow">Bottom panel home</div>
-        <div class="intro-title">Codex HUD lives in the VS Code bottom panel.</div>
-        <div class="subtle">If it disappears, click the status bar item or run <strong>Codex HUD: Open Panel</strong> from the command palette.</div>
-        ${
-          hasContextItems
-            ? ""
-            : `<div class="actions"><button class="button ghost" data-action="reveal-panel">Show me where it lives</button></div>`
-        }
-      </div>
       <div class="grid cols-3">
-        ${renderMetricCard("Session remaining", `${round(state?.usage?.session?.remainingPercent)}%`, state?.usage?.session?.resetAt || "Reset time not set", getToneClass(state?.usage?.session))}
-        ${renderMetricCard("Week remaining", `${round(state?.usage?.weekly?.remainingPercent)}%`, state?.usage?.weekly?.resetAt || "Reset time not set", getToneClass(state?.usage?.weekly))}
-        ${renderMetricCard("Context remaining", `${round(state?.contextWindow?.remainingPercent)}%`, `${state?.contextWindow?.remainingTokens || 0}/${state?.contextWindow?.limitTokens || 0} tokens left`, getToneClass(state?.contextWindow))}
-      </div>
-      <div class="card stack">
-        <div class="eyebrow">Quick view</div>
-        ${renderProgressBlock("Session remaining", state?.usage?.session, { percentMode: "remaining" })}
-        ${renderProgressBlock("Week remaining", state?.usage?.weekly, { percentMode: "remaining" })}
-        ${renderProgressBlock("Context remaining", state?.contextWindow, { tokenMode: "remaining", percentMode: "remaining" })}
+        ${renderMetricProgressCard("Context remaining", state?.contextWindow, {
+          detail: `${state?.contextWindow?.remainingTokens || 0}/${state?.contextWindow?.limitTokens || 0} tokens left`,
+          tokenMode: "remaining"
+        })}
+        ${renderMetricProgressCard("Session remaining", state?.usage?.session, {
+          detail: state?.usage?.session?.resetAt || "Reset time not set"
+        })}
+        ${renderMetricProgressCard("Week remaining", state?.usage?.weekly, {
+          detail: state?.usage?.weekly?.resetAt || "Reset time not set"
+        })}
       </div>
       <div class="card stack">
         <div class="eyebrow">Background pack</div>
@@ -107,6 +98,16 @@
           previewItems.length
             ? `<div class="list">${previewItems.map(renderContextItem).join("")}</div>`
             : `<div class="empty">No background items yet. Capture a selection or add a note.</div>`
+        }
+      </div>
+      <div class="card intro">
+        <div class="eyebrow">Bottom panel home</div>
+        <div class="intro-title">Codex HUD lives in the VS Code bottom panel.</div>
+        <div class="subtle">If it disappears, click the status bar item or run <strong>Codex HUD: Open Panel</strong> from the command palette.</div>
+        ${
+          hasContextItems
+            ? ""
+            : `<div class="actions"><button class="button ghost" data-action="reveal-panel">Show me where it lives</button></div>`
         }
       </div>
     `;
@@ -177,9 +178,11 @@
             : ""
         }
         ${
-          source?.latestThreadTokenTotal
-            ? `<div class="subtle">Latest thread total: ${escapeHtml(String(round(source.latestThreadTokenTotal)))} tokens. Context usage here only counts saved HUD background items plus reserved base tokens.</div>`
-            : `<div class="subtle">Context usage here only counts saved HUD background items plus reserved base tokens.</div>`
+          source?.currentContextTokens
+            ? `<div class="subtle">Current context: ${escapeHtml(String(round(source.currentContextTokens)))} / ${escapeHtml(String(round(state?.contextWindow?.limitTokens)))} tokens. This now follows the real Codex thread context.</div>`
+            : source?.latestThreadTokenTotal
+            ? `<div class="subtle">Latest thread total: ${escapeHtml(String(round(source.latestThreadTokenTotal)))} tokens. Context falls back to HUD-managed estimates when live context is unavailable.</div>`
+            : `<div class="subtle">Context falls back to HUD-managed estimates when live context is unavailable.</div>`
         }
         ${
           source?.error
@@ -189,12 +192,6 @@
         <div class="actions">
           <button class="button primary" data-action="refresh-usage">Refresh from Codex</button>
         </div>
-      </div>
-      <div class="card stack">
-        <div class="eyebrow">Live bars</div>
-        ${renderProgressBlock("Session remaining", state?.usage?.session, { percentMode: "remaining" })}
-        ${renderProgressBlock("Week remaining", state?.usage?.weekly, { percentMode: "remaining" })}
-        ${renderProgressBlock("Context remaining", state?.contextWindow, { tokenMode: "remaining", percentMode: "remaining" })}
       </div>
       <div class="card stack">
         <div class="eyebrow">Update usage</div>
@@ -269,6 +266,25 @@
       <div class="card ${toneClass || ""}">
         <div class="eyebrow">${escapeHtml(label)}</div>
         <div class="metric">${escapeHtml(String(value))}</div>
+        <p class="subtle">${escapeHtml(detail)}</p>
+      </div>
+    `;
+  }
+
+  function renderMetricProgressCard(label, data, options) {
+    const toneClass = getRemainingToneClass(data);
+    const percent = round(data?.remainingPercent);
+    const statusClass = toneClass ? `is-${toneClass}` : "";
+    const detail = options?.detail || "No detail";
+
+    return `
+      <div class="card metric-progress-card ${toneClass || ""}">
+        <div class="eyebrow">${escapeHtml(label)}</div>
+        <div class="metric-row">
+          <div class="metric">${escapeHtml(String(percent))}%</div>
+          <div class="metric-side">${percent}% left</div>
+        </div>
+        <progress class="metric-progress ${statusClass}" value="${Math.min(percent, 100)}" max="100"></progress>
         <p class="subtle">${escapeHtml(detail)}</p>
       </div>
     `;
@@ -453,6 +469,17 @@
       return "danger";
     }
     if (data?.status === "warn") {
+      return "warn";
+    }
+    return "ok";
+  }
+
+  function getRemainingToneClass(data) {
+    const percent = round(data?.remainingPercent);
+    if (percent <= 20) {
+      return "danger";
+    }
+    if (percent <= 50) {
       return "warn";
     }
     return "ok";

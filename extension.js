@@ -12,7 +12,7 @@ const PANEL_CONTAINER_COMMAND = "workbench.view.extension.codexHudPanel";
 const MINUTES_IN_WEEK = 7 * 24 * 60;
 
 function activate(context) {
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
   statusBar.command = OPEN_PANEL_COMMAND;
   context.subscriptions.push(statusBar);
 
@@ -169,7 +169,7 @@ class CodexHudStore {
     const contextBaseTokens = nonNegativeNumber(config.get("contextWindow.baseTokens", 0));
     const configuredContextLimit = Math.max(1, nonNegativeNumber(config.get("contextWindow.limitTokens", 32000)));
     const contextLimitTokens = autoUsage?.modelContextWindow ?? configuredContextLimit;
-    const contextUsedTokens = contextBaseTokens + totalManagedTokens;
+    const contextUsedTokens = Math.max(0, autoUsage?.currentContextTokens ?? (contextBaseTokens + totalManagedTokens));
     const contextUsedPercent = clampNumber((contextUsedTokens / contextLimitTokens) * 100, 0, 999);
     const contextRemainingTokens = Math.max(0, contextLimitTokens - contextUsedTokens);
     const contextRemainingPercent = clampNumber((contextRemainingTokens / contextLimitTokens) * 100, 0, 100);
@@ -211,6 +211,7 @@ class CodexHudStore {
           lastSyncedAt: autoUsage?.syncedAt ?? null,
           planType: autoUsage?.planType ?? null,
           filePath: autoUsage?.filePath ?? null,
+          currentContextTokens: autoUsage?.currentContextTokens ?? null,
           latestThreadTokenTotal: autoUsage?.threadTotalTokens ?? null,
           error: this.autoUsageError
         }
@@ -545,6 +546,7 @@ async function captureSelectionAsContext(store) {
 
 async function revealHudPanel() {
   await tryCommand("workbench.action.positionPanelBottom");
+  await tryCommand("workbench.action.setPanelAlignmentRight");
   await tryCommand("workbench.action.focusPanel");
   await tryCommand(PANEL_CONTAINER_COMMAND);
   const focused = await tryCommand(VIEW_FOCUS_COMMAND);
@@ -585,8 +587,11 @@ function renderStatusBar(statusBar, snapshot) {
   const session = `${Math.round(snapshot.usage.session.remainingPercent)}%`;
   const week = `${Math.round(snapshot.usage.weekly.remainingPercent)}%`;
   const context = `${Math.round(snapshot.contextWindow.remainingPercent)}%`;
+  const sessionBar = formatStatusMeter(snapshot.usage.session.remainingPercent);
+  const weekBar = formatStatusMeter(snapshot.usage.weekly.remainingPercent);
+  const contextBar = formatStatusMeter(snapshot.contextWindow.remainingPercent);
 
-  statusBar.text = `$(pulse) Codex S:${session} W:${week} Ctx:${context}`;
+  statusBar.text = `$(pulse) S:${sessionBar} ${session} W:${weekBar} ${week} C:${contextBar} ${context}`;
   statusBar.tooltip = [
     "Codex HUD",
     `Session remaining: ${session}${snapshot.usage.session.resetAt ? ` · resets ${snapshot.usage.session.resetAt}` : ""}`,
@@ -614,6 +619,13 @@ function renderStatusBar(statusBar, snapshot) {
   }
 
   statusBar.show();
+}
+
+function formatStatusMeter(value) {
+  const percent = clampNumber(Math.round(Number(value) || 0), 0, 100);
+  const slots = 5;
+  const filled = Math.round((percent / 100) * slots);
+  return `${"■".repeat(filled)}${"□".repeat(slots - filled)}`;
 }
 
 function sanitizeContextItem(item, charsPerToken) {
@@ -875,6 +887,7 @@ async function extractUsageFromRollout(filePath) {
         resetAt: weeklyWindow.resetsAt,
         resetAtLabel: formatResetLabel(weeklyWindow.resetsAt)
       },
+      currentContextTokens: nonNegativeNumber(usageInfo.last_token_usage?.input_tokens ?? 0),
       threadTotalTokens: nonNegativeNumber(totalUsage.total_tokens ?? 0),
       modelContextWindow: nonNegativeNumber(usageInfo.model_context_window ?? 0) || null,
       lastTokenUsage: usageInfo.last_token_usage ?? null

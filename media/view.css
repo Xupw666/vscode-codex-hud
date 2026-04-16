@@ -150,6 +150,19 @@ textarea {
   font-weight: 700;
 }
 
+.metric-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 8px;
+}
+
+.metric-side {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .card.ok .metric {
   color: var(--ok);
 }
@@ -164,6 +177,64 @@ textarea {
 
 .subtle {
   color: var(--muted);
+}
+
+.metric-progress-card {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-progress {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 12px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.metric-progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+}
+
+.metric-progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #aeb4ff, #d2b48c);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.metric-progress.is-ok::-webkit-progress-value {
+  background: linear-gradient(90deg, #6fd39b, #b8f2cd);
+}
+
+.metric-progress.is-warn::-webkit-progress-value {
+  background: linear-gradient(90deg, #ffd38b, #d2b48c);
+}
+
+.metric-progress.is-danger::-webkit-progress-value {
+  background: linear-gradient(90deg, #ff8b8b, #ffc3c3);
+}
+
+.metric-progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #aeb4ff, #d2b48c);
+}
+
+.metric-progress.is-ok::-moz-progress-bar {
+  background: linear-gradient(90deg, #6fd39b, #b8f2cd);
+}
+
+.metric-progress.is-warn::-moz-progress-bar {
+  background: linear-gradient(90deg, #ffd38b, #d2b48c);
+}
+
+.metric-progress.is-danger::-moz-progress-bar {
+  background: linear-gradient(90deg, #ff8b8b, #ffc3c3);
 }
 
 .progress-block {
