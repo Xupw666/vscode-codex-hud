@@ -12,9 +12,11 @@ const PANEL_CONTAINER_COMMAND = "workbench.view.extension.codexHudPanel";
 const MINUTES_IN_WEEK = 7 * 24 * 60;
 
 function activate(context) {
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
-  statusBar.command = OPEN_PANEL_COMMAND;
-  context.subscriptions.push(statusBar);
+  const statusBar = createStatusBarGroup();
+  Object.values(statusBar).forEach((item) => {
+    item.command = OPEN_PANEL_COMMAND;
+    context.subscriptions.push(item);
+  });
 
   const store = new CodexHudStore(context);
   const provider = new CodexHudViewProvider(context.extensionUri, store, refreshAll);
@@ -114,7 +116,6 @@ function activate(context) {
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
-      statusBar.dispose();
     }
   });
 
@@ -153,6 +154,15 @@ function activate(context) {
 }
 
 function deactivate() {}
+
+function createStatusBarGroup() {
+  return {
+    pulse: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 102),
+    context: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 101),
+    session: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100),
+    week: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99)
+  };
+}
 
 class CodexHudStore {
   constructor(context) {
@@ -587,19 +597,22 @@ function renderStatusBar(statusBar, snapshot) {
   const session = `${Math.round(snapshot.usage.session.remainingPercent)}%`;
   const week = `${Math.round(snapshot.usage.weekly.remainingPercent)}%`;
   const context = `${Math.round(snapshot.contextWindow.remainingPercent)}%`;
-  const sessionBar = formatStatusMeter(snapshot.usage.session.remainingPercent);
-  const weekBar = formatStatusMeter(snapshot.usage.weekly.remainingPercent);
-  const contextBar = formatStatusMeter(snapshot.contextWindow.remainingPercent);
+  const sessionBar = formatStatusMeter(snapshot.usage.session.remainingPercent, snapshot.usage.session.status);
+  const weekBar = formatStatusMeter(snapshot.usage.weekly.remainingPercent, snapshot.usage.weekly.status);
+  const contextBar = formatStatusMeter(snapshot.contextWindow.remainingPercent, snapshot.contextWindow.status);
+  const tooltip = buildStatusTooltip(snapshot);
 
-  statusBar.text = `$(pulse) S:${sessionBar} ${session} W:${weekBar} ${week} C:${contextBar} ${context}`;
-  statusBar.tooltip = [
-    "Codex HUD",
-    `Session remaining: ${session}${snapshot.usage.session.resetAt ? ` · resets ${snapshot.usage.session.resetAt}` : ""}`,
-    `Week remaining: ${week}${snapshot.usage.weekly.resetAt ? ` · resets ${snapshot.usage.weekly.resetAt}` : ""}`,
-    `Context remaining: ${snapshot.contextWindow.remainingTokens}/${snapshot.contextWindow.limitTokens} tokens`,
-    `Background items: ${snapshot.context.totalItems}`,
-    snapshot.usage.source.description
-  ].join("\n");
+  statusBar.pulse.text = "$(pulse)";
+  statusBar.pulse.tooltip = tooltip;
+  statusBar.context.text = `C:${contextBar} ${context}`;
+  statusBar.context.tooltip = tooltip;
+  statusBar.context.color = themeColorForStatus(snapshot.contextWindow.status);
+  statusBar.session.text = `S:${sessionBar} ${session}`;
+  statusBar.session.tooltip = tooltip;
+  statusBar.session.color = themeColorForStatus(snapshot.usage.session.status);
+  statusBar.week.text = `W:${weekBar} ${week}`;
+  statusBar.week.tooltip = tooltip;
+  statusBar.week.color = themeColorForStatus(snapshot.usage.weekly.status);
 
   const hasDanger =
     snapshot.usage.session.status === "danger" ||
@@ -610,22 +623,59 @@ function renderStatusBar(statusBar, snapshot) {
     snapshot.usage.weekly.status === "warn" ||
     snapshot.contextWindow.status === "warn";
 
-  if (hasDanger) {
-    statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.errorBackground");
-  } else if (hasWarn) {
-    statusBar.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
-  } else {
-    statusBar.backgroundColor = undefined;
-  }
+  const backgroundColor = hasDanger
+    ? new vscode.ThemeColor("statusBarItem.errorBackground")
+    : hasWarn
+      ? new vscode.ThemeColor("statusBarItem.warningBackground")
+      : undefined;
 
-  statusBar.show();
+  Object.values(statusBar).forEach((item) => {
+    item.backgroundColor = backgroundColor;
+    item.show();
+  });
 }
 
-function formatStatusMeter(value) {
+function formatStatusMeter(value, status) {
   const percent = clampNumber(Math.round(Number(value) || 0), 0, 100);
   const slots = 5;
   const filled = Math.round((percent / 100) * slots);
-  return `${"■".repeat(filled)}${"□".repeat(slots - filled)}`;
+  const palette = meterPaletteForStatus(status);
+  return `${palette.filled.repeat(filled)}${palette.empty.repeat(slots - filled)}`;
+}
+
+function meterPaletteForStatus(status) {
+  switch (status) {
+    case "danger":
+      return { filled: "●", empty: "○" };
+    case "warn":
+      return { filled: "●", empty: "○" };
+    default:
+      return { filled: "●", empty: "○" };
+  }
+}
+
+function themeColorForStatus(status) {
+  switch (status) {
+    case "danger":
+      return new vscode.ThemeColor("charts.red");
+    case "warn":
+      return new vscode.ThemeColor("charts.yellow");
+    default:
+      return new vscode.ThemeColor("charts.green");
+  }
+}
+
+function buildStatusTooltip(snapshot) {
+  const session = `${Math.round(snapshot.usage.session.remainingPercent)}%`;
+  const week = `${Math.round(snapshot.usage.weekly.remainingPercent)}%`;
+  return [
+    "Codex HUD",
+    `Context remaining: ${snapshot.contextWindow.remainingTokens}/${snapshot.contextWindow.limitTokens} tokens`,
+    `Session remaining: ${session}${snapshot.usage.session.resetAt ? ` · resets ${snapshot.usage.session.resetAt}` : ""}`,
+    `Week remaining: ${week}${snapshot.usage.weekly.resetAt ? ` · resets ${snapshot.usage.weekly.resetAt}` : ""}`,
+    `Background items: ${snapshot.context.totalItems}`,
+    snapshot.usage.source.description
+  ].join("\n");
 }
 
 function sanitizeContextItem(item, charsPerToken) {
