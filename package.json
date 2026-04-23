@@ -17,7 +17,8 @@
     "vscode": "^1.88.0"
   },
   "scripts": {
-    "check": "node --check extension.js && node --check media/view.js"
+    "check": "node --check extension.js && node --check quickLauncher.js && node --check media/view.js",
+    "test": "node --test"
   },
   "categories": [
     "Other"
@@ -25,7 +26,9 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:codexHud.dashboard",
+    "onView:codexHud.quickLauncher",
     "onCommand:codexHud.openPanel",
+    "onCommand:codexHud.quickOpenCodexAgent",
     "onCommand:codexHud.refreshUsage",
     "onCommand:codexHud.captureSelection",
     "onCommand:codexHud.setSessionUsage",
@@ -44,6 +47,11 @@
         "command": "codexHud.captureSelection",
         "category": "Codex HUD",
         "title": "Capture Selection as Context"
+      },
+      {
+        "command": "codexHud.quickOpenCodexAgent",
+        "category": "Codex HUD",
+        "title": "Open Another Codex Agent"
       },
       {
         "command": "codexHud.refreshUsage",
@@ -154,6 +162,13 @@
       }
     },
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codexHudLauncher",
+          "title": "Codex +",
+          "icon": "media/blossom-white.svg"
+        }
+      ],
       "panel": [
         {
           "id": "codexHudPanel",
@@ -163,11 +178,26 @@
       ]
     },
     "views": {
+      "codexHudLauncher": [
+        {
+          "id": "codexHud.quickLauncher",
+          "name": "Quick Launch"
+        }
+      ],
       "codexHudPanel": [
         {
           "type": "webview",
           "id": "codexHud.dashboard",
           "name": "Codex HUD"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codexHud.quickOpenCodexAgent",
+          "when": "view == codexHud.quickLauncher",
+          "group": "navigation"
         }
       ]
     }
