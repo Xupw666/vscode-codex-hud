@@ -2,16 +2,23 @@ const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const vscode = require("vscode");
+const { formatLaunchErrorMessage, shouldAutoLaunch } = require("./quickLauncher");
 
 const CONTEXT_KEY = "codexHud.contextItems";
 const INSTALL_PROMPT_KEY = "codexHud.hasShownInstallPrompt";
 const OPEN_PANEL_COMMAND = "codexHud.openPanel";
+const QUICK_OPEN_CODEX_AGENT_COMMAND = "codexHud.quickOpenCodexAgent";
 const REFRESH_USAGE_COMMAND = "codexHud.refreshUsage";
 const VIEW_FOCUS_COMMAND = "codexHud.dashboard.focus";
 const PANEL_CONTAINER_COMMAND = "workbench.view.extension.codexHudPanel";
+const CODEX_NEW_AGENT_COMMAND = "chatgpt.newCodexPanel";
+const CODEX_OPEN_SIDEBAR_COMMAND = "chatgpt.openSidebar";
+const EXPLORER_VIEW_COMMAND = "workbench.view.explorer";
+const QUICK_LAUNCH_VIEW_ID = "codexHud.quickLauncher";
 const MINUTES_IN_WEEK = 7 * 24 * 60;
 
 function activate(context) {
+  const activatedAt = Date.now();
   const statusBar = createStatusBarGroup();
   Object.values(statusBar).forEach((item) => {
     item.command = OPEN_PANEL_COMMAND;
@@ -20,9 +27,15 @@ function activate(context) {
 
   const store = new CodexHudStore(context);
   const provider = new CodexHudViewProvider(context.extensionUri, store, refreshAll);
+  const quickLaunchProvider = new CodexQuickLaunchProvider();
+  const quickLaunchView = vscode.window.createTreeView(QUICK_LAUNCH_VIEW_ID, {
+    treeDataProvider: quickLaunchProvider,
+    showCollapseAll: false
+  });
   let refreshTimer = undefined;
 
   context.subscriptions.push(
+    quickLaunchView,
     vscode.window.registerWebviewViewProvider("codexHud.dashboard", provider, {
       webviewOptions: {
         retainContextWhenHidden: true
@@ -33,6 +46,9 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand(OPEN_PANEL_COMMAND, async () => {
       await revealHudPanel();
+    }),
+    vscode.commands.registerCommand(QUICK_OPEN_CODEX_AGENT_COMMAND, async () => {
+      await openAnotherCodexAgent();
     }),
     vscode.commands.registerCommand(REFRESH_USAGE_COMMAND, async () => {
       await store.refreshAutoUsage();
@@ -102,6 +118,27 @@ function activate(context) {
       await store.setContextItems([]);
       refreshAll();
     }),
+    quickLaunchView.onDidChangeVisibility(async (event) => {
+      if (!event.visible) {
+        quickLaunchProvider.resetCurrentReveal();
+        return;
+      }
+
+      if (!shouldAutoLaunch({
+        visible: event.visible,
+        launchConsumedForCurrentReveal: quickLaunchProvider.launchConsumedForCurrentReveal,
+        now: Date.now(),
+        activatedAt
+      })) {
+        return;
+      }
+
+      quickLaunchProvider.markCurrentRevealConsumed();
+      const launched = await openAnotherCodexAgent();
+      if (!launched) {
+        quickLaunchProvider.resetCurrentReveal();
+      }
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("codexHud")) {
         void store.refreshAutoUsage();
@@ -151,6 +188,38 @@ function activate(context) {
     renderStatusBar(statusBar, snapshot);
     provider.refresh(snapshot);
   }
+
+  async function openAnotherCodexAgent() {
+    const availableCommands = await vscode.commands.getCommands(true);
+    if (!availableCommands.includes(CODEX_NEW_AGENT_COMMAND)) {
+      vscode.window.showErrorMessage("Codex quick launcher could not find the OpenAI Codex command.");
+      return false;
+    }
+
+    try {
+      await vscode.commands.executeCommand(CODEX_NEW_AGENT_COMMAND);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to open a new Codex Agent: ${formatLaunchErrorMessage(error)}`);
+      return false;
+    }
+
+    if (availableCommands.includes(CODEX_OPEN_SIDEBAR_COMMAND)) {
+      try {
+        await vscode.commands.executeCommand(CODEX_OPEN_SIDEBAR_COMMAND);
+        return true;
+      } catch (error) {
+        vscode.window.showWarningMessage(`Opened a new Codex Agent, but could not refocus the Codex sidebar: ${formatLaunchErrorMessage(error)}`);
+      }
+    }
+
+    try {
+      await vscode.commands.executeCommand(EXPLORER_VIEW_COMMAND);
+    } catch {
+      // Ignore focus fallback failures. The new Codex Agent has already been created.
+    }
+
+    return true;
+  }
 }
 
 function deactivate() {}
@@ -162,6 +231,36 @@ function createStatusBarGroup() {
     session: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100),
     week: vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99)
   };
+}
+
+class CodexQuickLaunchProvider {
+  constructor() {
+    this.launchConsumedForCurrentReveal = false;
+  }
+
+  getTreeItem(element) {
+    return element;
+  }
+
+  getChildren() {
+    const item = new vscode.TreeItem("Open another Codex Agent", vscode.TreeItemCollapsibleState.None);
+    item.description = "Fallback button";
+    item.tooltip = "Click the activity bar icon once to auto-open a new Codex Agent. If auto-launch is blocked, click this row.";
+    item.command = {
+      command: QUICK_OPEN_CODEX_AGENT_COMMAND,
+      title: "Open another Codex Agent"
+    };
+    item.iconPath = new vscode.ThemeIcon("add");
+    return [item];
+  }
+
+  markCurrentRevealConsumed() {
+    this.launchConsumedForCurrentReveal = true;
+  }
+
+  resetCurrentReveal() {
+    this.launchConsumedForCurrentReveal = false;
+  }
 }
 
 class CodexHudStore {
