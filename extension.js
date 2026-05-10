@@ -2,13 +2,31 @@ const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const vscode = require("vscode");
+const {
+  appendPetEvent,
+  createNotificationEventFromCodexEvent
+} = require("./codexNotifications");
+const {
+  startDesktopPet,
+  stopDesktopPet
+} = require("./desktopPet");
+const {
+  DEFAULT_PET_ID,
+  DEFAULT_PET_SLUG,
+  disablePetAutoWake,
+  enablePetAutoWake
+} = require("./petAutoWake");
 const { formatLaunchErrorMessage, shouldAutoLaunch } = require("./quickLauncher");
 
 const CONTEXT_KEY = "codexHud.contextItems";
 const INSTALL_PROMPT_KEY = "codexHud.hasShownInstallPrompt";
 const OPEN_PANEL_COMMAND = "codexHud.openPanel";
 const QUICK_OPEN_CODEX_AGENT_COMMAND = "codexHud.quickOpenCodexAgent";
+const ENABLE_PET_AUTO_WAKE_COMMAND = "codexHud.enablePetAutoWake";
+const DISABLE_PET_AUTO_WAKE_COMMAND = "codexHud.disablePetAutoWake";
+const REPAIR_PET_AUTO_WAKE_COMMAND = "codexHud.repairPetAutoWake";
 const REFRESH_USAGE_COMMAND = "codexHud.refreshUsage";
+const PET_OPEN_CODEX_URI_PATH = "/open-codex";
 const VIEW_FOCUS_COMMAND = "codexHud.dashboard.focus";
 const PANEL_CONTAINER_COMMAND = "workbench.view.extension.codexHudPanel";
 const CODEX_NEW_AGENT_COMMAND = "chatgpt.newCodexPanel";
@@ -33,6 +51,10 @@ function activate(context) {
     showCollapseAll: false
   });
   let refreshTimer = undefined;
+  let petNotificationTimer = undefined;
+  let petAutoWakeWarningShown = false;
+  const petNotificationOffsets = new Map();
+  const petNotificationFileStates = new Map();
 
   context.subscriptions.push(
     quickLaunchView,
@@ -50,10 +72,26 @@ function activate(context) {
     vscode.commands.registerCommand(QUICK_OPEN_CODEX_AGENT_COMMAND, async () => {
       await openAnotherCodexAgent();
     }),
+    vscode.commands.registerCommand(ENABLE_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("enable");
+    }),
+    vscode.commands.registerCommand(DISABLE_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("disable");
+    }),
+    vscode.commands.registerCommand(REPAIR_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("repair");
+    }),
     vscode.commands.registerCommand(REFRESH_USAGE_COMMAND, async () => {
       await store.refreshAutoUsage();
       refreshAll();
       vscode.window.showInformationMessage("Codex HUD usage refreshed from the latest Codex rollout.");
+    }),
+    vscode.window.registerUriHandler({
+      async handleUri(uri) {
+        if (uri.path === PET_OPEN_CODEX_URI_PATH) {
+          await openAnotherCodexAgent();
+        }
+      }
     }),
     vscode.commands.registerCommand("codexHud.captureSelection", async () => {
       const item = await captureSelectionAsContext(store);
@@ -145,6 +183,11 @@ function activate(context) {
         resetUsageRefreshTimer();
         refreshAll();
       }
+
+      if (event.affectsConfiguration("codexHud.petAutoWake")) {
+        void repairPetAutoWakeIfEnabled({ quiet: true });
+        resetPetNotificationMonitor();
+      }
     })
   );
 
@@ -152,6 +195,9 @@ function activate(context) {
     dispose: () => {
       if (refreshTimer) {
         clearInterval(refreshTimer);
+      }
+      if (petNotificationTimer) {
+        clearInterval(petNotificationTimer);
       }
     }
   });
@@ -161,7 +207,9 @@ function activate(context) {
 
   async function initialize() {
     await store.refreshAutoUsage();
+    await repairPetAutoWakeIfEnabled({ quiet: true });
     resetUsageRefreshTimer();
+    resetPetNotificationMonitor();
     refreshAll();
   }
 
@@ -183,6 +231,86 @@ function activate(context) {
     }, refreshSeconds * 1000);
   }
 
+  function resetPetNotificationMonitor() {
+    if (petNotificationTimer) {
+      clearInterval(petNotificationTimer);
+      petNotificationTimer = undefined;
+    }
+
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false) || !config.get("petAutoWake.desktopPet.enabled", true)) {
+      return;
+    }
+
+    petNotificationTimer = setInterval(() => {
+      void pollCodexPetNotifications();
+    }, 3000);
+    void pollCodexPetNotifications();
+  }
+
+  async function pollCodexPetNotifications() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false) || !config.get("petAutoWake.desktopPet.enabled", true)) {
+      return;
+    }
+
+    const codexHomePath = expandHomePath(config.get("codexHomePath", "~/.codex"));
+    const sessionsPath = path.join(codexHomePath, "sessions");
+    let files;
+    try {
+      files = await findJsonlFiles(sessionsPath);
+    } catch {
+      return;
+    }
+
+    const nowMs = Date.now();
+    for (const filePath of files) {
+      let stat;
+      try {
+        stat = await fsp.stat(filePath);
+      } catch {
+        continue;
+      }
+
+      let offset = petNotificationOffsets.get(filePath);
+      if (offset === undefined && stat.mtimeMs < nowMs - 10_000) {
+        petNotificationOffsets.set(filePath, stat.size);
+        continue;
+      }
+
+      offset = offset ?? 0;
+      if (stat.size <= offset) {
+        continue;
+      }
+
+      try {
+        const handle = await fsp.open(filePath, "r");
+        const length = stat.size - offset;
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, offset);
+        await handle.close();
+        petNotificationOffsets.set(filePath, stat.size);
+
+        const state = petNotificationFileStates.get(filePath) || {};
+        petNotificationFileStates.set(filePath, state);
+        for (const line of buffer.toString("utf8").split(/\r?\n/)) {
+          if (!line.trim()) {
+            continue;
+          }
+          const event = createNotificationEventFromCodexEvent(JSON.parse(line), state, {
+            fileKey: filePath,
+            nowMs
+          });
+          if (event) {
+            await appendPetEvent(codexHomePath, event);
+          }
+        }
+      } catch {
+        petNotificationOffsets.set(filePath, stat.size);
+      }
+    }
+  }
+
   function refreshAll() {
     const snapshot = store.getSnapshot();
     renderStatusBar(statusBar, snapshot);
@@ -190,6 +318,8 @@ function activate(context) {
   }
 
   async function openAnotherCodexAgent() {
+    await repairPetAutoWakeIfEnabled({ quiet: true });
+
     const availableCommands = await vscode.commands.getCommands(true);
     if (!availableCommands.includes(CODEX_NEW_AGENT_COMMAND)) {
       vscode.window.showErrorMessage("Codex quick launcher could not find the OpenAI Codex command.");
@@ -220,9 +350,122 @@ function activate(context) {
 
     return true;
   }
+
+  async function repairPetAutoWakeIfEnabled({ quiet } = { quiet: true }) {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false)) {
+      return false;
+    }
+
+    try {
+      await enablePetAutoWake(getPetAutoWakeOptions());
+      await startDesktopPetIfEnabled();
+      return true;
+    } catch (error) {
+      if (!quiet || !petAutoWakeWarningShown) {
+        petAutoWakeWarningShown = true;
+        vscode.window.showWarningMessage(`Codex pet auto wake could not be repaired: ${formatLaunchErrorMessage(error)}`);
+      }
+      return false;
+    }
+  }
+
+  async function runPetAutoWakeCommand(action) {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    try {
+      if (action === "disable") {
+        const result = await disablePetAutoWake(getPetAutoWakeOptions());
+        await stopDesktopPet(getDesktopPetOptions());
+        await config.update("petAutoWake.enabled", false, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(
+          `Codex pet auto wake disabled${result.changed ? "" : " (already disabled)"}. chatgpt.openOnStartup was not changed.`
+        );
+        return;
+      }
+
+      const result = await enablePetAutoWake(getPetAutoWakeOptions());
+      const desktopPet = await startDesktopPetIfEnabled();
+      await config.update("petAutoWake.enabled", true, vscode.ConfigurationTarget.Global);
+      const verb = action === "repair" ? "repaired" : "enabled";
+      const state = result.changed ? "patched" : "already patched";
+      const startup = result.openOnStartupChanged ? "chatgpt.openOnStartup enabled." : "chatgpt.openOnStartup already enabled.";
+      const desktopState = desktopPet ? "Desktop pet launched." : "Desktop pet launch is disabled.";
+      vscode.window.showInformationMessage(
+        `Codex pet auto wake ${verb}: ${result.petId} is ${state}. ${startup} ${desktopState}`
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(`Codex pet auto wake failed: ${formatLaunchErrorMessage(error)}`);
+    }
+  }
+
+  function getPetAutoWakeOptions() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    return {
+      vscodeApi: vscode,
+      codexHomePath: config.get("codexHomePath", "~/.codex"),
+      petSlug: config.get("petAutoWake.petSlug", DEFAULT_PET_SLUG),
+      petId: config.get("petAutoWake.petId", DEFAULT_PET_ID),
+      webviewOverlayEnabled: config.get("petAutoWake.webviewOverlay.enabled", false)
+    };
+  }
+
+  async function startDesktopPetIfEnabled() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.desktopPet.enabled", true)) {
+      return null;
+    }
+
+    return startDesktopPet(getDesktopPetOptions());
+  }
+
+  function getDesktopPetOptions() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    return {
+      extensionPath: context.extensionPath,
+      codexHomePath: config.get("codexHomePath", "~/.codex"),
+      petSlug: config.get("petAutoWake.petSlug", DEFAULT_PET_SLUG),
+      petName: "多多团团",
+      codexUri: createPetOpenCodexUri(),
+      notificationMode: config.get("petAutoWake.notificationMode", "critical"),
+      petSize: config.get("petAutoWake.desktopPet.size", 160)
+    };
+  }
+
+  function createPetOpenCodexUri() {
+    const extensionId = context.extension?.id || "local.codex-hud";
+    return vscode.Uri.from({
+      scheme: vscode.env.uriScheme || "vscode",
+      authority: extensionId,
+      path: PET_OPEN_CODEX_URI_PATH
+    }).toString();
+  }
 }
 
 function deactivate() {}
+
+async function findJsonlFiles(rootPath) {
+  const entries = await fsp.readdir(rootPath, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await findJsonlFiles(entryPath));
+    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
+function expandHomePath(targetPath) {
+  if (!targetPath || targetPath === "~") {
+    return os.homedir();
+  }
+  if (targetPath.startsWith("~/")) {
+    return path.join(os.homedir(), targetPath.slice(2));
+  }
+  return targetPath;
+}
 
 function createStatusBarGroup() {
   return {
