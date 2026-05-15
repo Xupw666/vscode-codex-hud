@@ -1,19 +1,48 @@
+const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const vscode = require("vscode");
-const { formatLaunchErrorMessage, shouldAutoLaunch } = require("./quickLauncher");
+const {
+  appendPetEvent,
+  createNotificationEventFromCodexEvent
+} = require("./codexNotifications");
+const {
+  startDesktopPet,
+  stopDesktopPet
+} = require("./desktopPet");
+const {
+  CODEX_CUSTOM_EDITOR_VIEW_TYPE,
+  CODEX_PANEL_AUTHORITY,
+  CODEX_PANEL_ROUTE_PATH,
+  CODEX_PANEL_SCHEME,
+  choosePostLaunchFocusCommand,
+  createCodexPanelQuery,
+  formatLaunchErrorMessage,
+  shouldAutoLaunch
+} = require("./quickLauncher");
+const {
+  DEFAULT_PET_ID,
+  DEFAULT_PET_SLUG,
+  disablePetAutoWake,
+  enablePetAutoWake
+} = require("./petAutoWake");
 
 const CONTEXT_KEY = "codexHud.contextItems";
 const INSTALL_PROMPT_KEY = "codexHud.hasShownInstallPrompt";
 const OPEN_PANEL_COMMAND = "codexHud.openPanel";
 const QUICK_OPEN_CODEX_AGENT_COMMAND = "codexHud.quickOpenCodexAgent";
+const OPEN_THREE_CODEX_AGENTS_COMMAND = "codexHud.openThreeCodexAgents";
+const OPEN_FOUR_CODEX_AGENTS_COMMAND = "codexHud.openFourCodexAgents";
+const ENABLE_PET_AUTO_WAKE_COMMAND = "codexHud.enablePetAutoWake";
+const DISABLE_PET_AUTO_WAKE_COMMAND = "codexHud.disablePetAutoWake";
+const REPAIR_PET_AUTO_WAKE_COMMAND = "codexHud.repairPetAutoWake";
 const REFRESH_USAGE_COMMAND = "codexHud.refreshUsage";
+const PET_OPEN_CODEX_URI_PATH = "/open-codex";
+const PET_SWITCH_URI_PATH = "/switch-pet";
 const VIEW_FOCUS_COMMAND = "codexHud.dashboard.focus";
 const PANEL_CONTAINER_COMMAND = "workbench.view.extension.codexHudPanel";
 const CODEX_NEW_AGENT_COMMAND = "chatgpt.newCodexPanel";
-const CODEX_OPEN_SIDEBAR_COMMAND = "chatgpt.openSidebar";
-const EXPLORER_VIEW_COMMAND = "workbench.view.explorer";
 const QUICK_LAUNCH_VIEW_ID = "codexHud.quickLauncher";
 const MINUTES_IN_WEEK = 7 * 24 * 60;
 
@@ -25,6 +54,24 @@ function activate(context) {
     context.subscriptions.push(item);
   });
 
+  // Claude Code status bar items (left side, 3 colored items + 2 separators)
+  const ccContextBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10.2);
+  const ccSep1       = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10.1);
+  const ccSessionBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10.0);
+  const ccSep2       = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 9.9);
+  const ccWeeklyBar  = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 9.8);
+  [ccContextBar, ccSep1, ccSessionBar, ccSep2, ccWeeklyBar].forEach(b => context.subscriptions.push(b));
+  ccContextBar.command = "codexHud.refreshFromClipboard";
+  ccSessionBar.command = "codexHud.refreshFromClipboard";
+  ccWeeklyBar.command  = "codexHud.refreshFromClipboard";
+  ccSep1.text = "│"; ccSep1.color = "#555555";
+  ccSep2.text = "│"; ccSep2.color = "#555555";
+  let ccRefreshTimer = undefined;
+  let jsonlWatcher = null;
+
+  // Cache for data pasted from /usage output (accurate, zero token cost)
+  const ccTerminalCache = { sessionUsedPercent: null, weeklyUsedPercent: null, capturedAt: 0 };
+
   const store = new CodexHudStore(context);
   const provider = new CodexHudViewProvider(context.extensionUri, store, refreshAll);
   const quickLaunchProvider = new CodexQuickLaunchProvider();
@@ -33,6 +80,10 @@ function activate(context) {
     showCollapseAll: false
   });
   let refreshTimer = undefined;
+  let petNotificationTimer = undefined;
+  let petAutoWakeWarningShown = false;
+  const petNotificationOffsets = new Map();
+  const petNotificationFileStates = new Map();
 
   context.subscriptions.push(
     quickLaunchView,
@@ -48,12 +99,42 @@ function activate(context) {
       await revealHudPanel();
     }),
     vscode.commands.registerCommand(QUICK_OPEN_CODEX_AGENT_COMMAND, async () => {
-      await openAnotherCodexAgent();
+      await openCodexAgents(1);
+    }),
+    vscode.commands.registerCommand(OPEN_THREE_CODEX_AGENTS_COMMAND, async () => {
+      await openCodexAgents(3);
+    }),
+    vscode.commands.registerCommand(OPEN_FOUR_CODEX_AGENTS_COMMAND, async () => {
+      await openCodexAgents(4);
+    }),
+    vscode.commands.registerCommand(ENABLE_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("enable");
+    }),
+    vscode.commands.registerCommand(DISABLE_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("disable");
+    }),
+    vscode.commands.registerCommand(REPAIR_PET_AUTO_WAKE_COMMAND, async () => {
+      await runPetAutoWakeCommand("repair");
     }),
     vscode.commands.registerCommand(REFRESH_USAGE_COMMAND, async () => {
       await store.refreshAutoUsage();
       refreshAll();
       vscode.window.showInformationMessage("Codex HUD usage refreshed from the latest Codex rollout.");
+    }),
+    vscode.window.registerUriHandler({
+      async handleUri(uri) {
+        if (uri.path === PET_OPEN_CODEX_URI_PATH) {
+          const focused = await focusExistingCodexTab();
+          if (!focused) {
+            await openCodexAgents(1);
+          }
+          return;
+        }
+
+        if (uri.path === PET_SWITCH_URI_PATH) {
+          await switchPetFromUri(uri);
+        }
+      }
     }),
     vscode.commands.registerCommand("codexHud.captureSelection", async () => {
       const item = await captureSelectionAsContext(store);
@@ -134,7 +215,7 @@ function activate(context) {
       }
 
       quickLaunchProvider.markCurrentRevealConsumed();
-      const launched = await openAnotherCodexAgent();
+      const launched = await openCodexAgents(1);
       if (!launched) {
         quickLaunchProvider.resetCurrentReveal();
       }
@@ -144,6 +225,32 @@ function activate(context) {
         void store.refreshAutoUsage();
         resetUsageRefreshTimer();
         refreshAll();
+        void refreshClaudeCodeBars();
+        resetClaudeCodeRefreshTimer();
+        resetJSONLWatcher();
+      }
+
+      if (event.affectsConfiguration("codexHud.petAutoWake")) {
+        void repairPetAutoWakeIfEnabled({ quiet: true });
+        resetPetNotificationMonitor();
+      }
+    })
+  );
+
+  // Clipboard command: user runs /usage in terminal, copies the output, then clicks CC bar
+  context.subscriptions.push(
+    vscode.commands.registerCommand("codexHud.refreshFromClipboard", async () => {
+      const text = await vscode.env.clipboard.readText();
+      const sessionMatch = text.match(/Current session[:\s]+(\d+(?:\.\d+)?)%\s+used/i);
+      const weekMatch = text.match(/Current week[^:]*[:\s]+(\d+(?:\.\d+)?)%\s+used/i);
+      if (sessionMatch && weekMatch) {
+        ccTerminalCache.sessionUsedPercent = parseFloat(sessionMatch[1]);
+        ccTerminalCache.weeklyUsedPercent = parseFloat(weekMatch[1]);
+        ccTerminalCache.capturedAt = Date.now();
+        void refreshClaudeCodeBars();
+        vscode.window.showInformationMessage("CC usage updated from /usage output.");
+      } else {
+        vscode.window.showWarningMessage("No /usage data found in clipboard. Run /usage in Claude Code terminal, copy the output, then click the CC bar.");
       }
     })
   );
@@ -153,6 +260,16 @@ function activate(context) {
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
+      if (petNotificationTimer) {
+        clearInterval(petNotificationTimer);
+      }
+      if (ccRefreshTimer) {
+        clearInterval(ccRefreshTimer);
+      }
+      if (jsonlWatcher) {
+        jsonlWatcher.close();
+        jsonlWatcher = null;
+      }
     }
   });
 
@@ -161,8 +278,120 @@ function activate(context) {
 
   async function initialize() {
     await store.refreshAutoUsage();
+    await repairPetAutoWakeIfEnabled({ quiet: true });
     resetUsageRefreshTimer();
+    resetPetNotificationMonitor();
     refreshAll();
+    void refreshClaudeCodeBars();
+    resetClaudeCodeRefreshTimer();
+    resetJSONLWatcher();
+  }
+
+  async function refreshClaudeCodeBars() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("claudeCode.enabled", true)) {
+      ccContextBar.hide(); ccSep1.hide(); ccSessionBar.hide(); ccSep2.hide(); ccWeeklyBar.hide();
+      return;
+    }
+
+    try {
+      const ccHomePath = expandHomeDirectory(config.get("claudeCode.homePath", "~/.claude"));
+      const sessionLimit = nonNegativeNumber(config.get("claudeCode.sessionTokenLimit", 8000000)) || 8000000;
+      const contextWindow = nonNegativeNumber(config.get("claudeCode.contextWindowTokens", 200000)) || 200000;
+      const weeklyLimit = nonNegativeNumber(config.get("claudeCode.weeklyTokenLimit", 50000000)) || 50000000;
+      const usage = await readLatestClaudeCodeUsage(ccHomePath, sessionLimit, contextWindow, weeklyLimit);
+      const ctxRemaining = clampNumber(100 - (usage.currentContextTokens / contextWindow) * 100, 0, 100);
+
+      // Use clipboard /usage data for S+W when fresh (< 10 min), else fall back to JSONL estimate
+      const terminalFresh = ccTerminalCache.capturedAt > 0 && (Date.now() - ccTerminalCache.capturedAt) < 10 * 60 * 1000;
+      const sessRemaining = terminalFresh
+        ? clampNumber(100 - ccTerminalCache.sessionUsedPercent, 0, 100)
+        : clampNumber(100 - usage.session.usedPercent, 0, 100);
+      const weekRemaining = terminalFresh
+        ? clampNumber(100 - ccTerminalCache.weeklyUsedPercent, 0, 100)
+        : clampNumber(100 - usage.weekly.usedPercent, 0, 100);
+
+      const ctxSeverity  = severityForPercent(100 - ctxRemaining, 75);
+      const sessSeverity = severityForPercent(100 - sessRemaining, 90);
+      const weekSeverity = severityForPercent(100 - weekRemaining, 80);
+
+      const ctxMeter  = formatStatusMeter(ctxRemaining, ctxSeverity);
+      const sessMeter = formatStatusMeter(sessRemaining, sessSeverity);
+      const weekMeter = formatStatusMeter(weekRemaining, weekSeverity);
+
+      const sourceLabel = terminalFresh ? "from /usage" : "estimated";
+      const sharedTooltip = [
+        `Claude Code usage (S+W: ${sourceLabel})`,
+        `Context: ${usage.currentContextTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens (${Math.round(ctxRemaining)}% left)`,
+        `Session 5h: ${Math.round(sessRemaining)}% left`,
+        `Weekly: ${Math.round(weekRemaining)}% left`,
+        terminalFresh
+          ? `  ↑ from /usage at ${new Date(ccTerminalCache.capturedAt).toLocaleTimeString()}`
+          : `  ↑ estimated — click to paste /usage output for accurate data`
+      ].join("\n");
+
+      ccContextBar.text    = `C:${ctxMeter} ${Math.round(ctxRemaining)}%`;
+      ccContextBar.color   = themeColorForMetric(ctxSeverity, "charts.blue");
+      ccContextBar.tooltip = sharedTooltip;
+
+      ccSessionBar.text    = `S:${sessMeter} ${Math.round(sessRemaining)}%`;
+      ccSessionBar.color   = themeColorForMetric(sessSeverity, "charts.green");
+      ccSessionBar.tooltip = sharedTooltip;
+
+      ccWeeklyBar.text    = `W:${weekMeter} ${Math.round(weekRemaining)}%`;
+      ccWeeklyBar.color   = themeColorForMetric(weekSeverity, "charts.purple");
+      ccWeeklyBar.tooltip = sharedTooltip;
+
+      ccContextBar.show(); ccSep1.show(); ccSessionBar.show(); ccSep2.show(); ccWeeklyBar.show();
+    } catch {
+      ccContextBar.hide(); ccSep1.hide(); ccSessionBar.hide(); ccSep2.hide(); ccWeeklyBar.hide();
+    }
+  }
+
+  function resetClaudeCodeRefreshTimer() {
+    if (ccRefreshTimer) {
+      clearInterval(ccRefreshTimer);
+      ccRefreshTimer = undefined;
+    }
+
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("claudeCode.enabled", true)) {
+      return;
+    }
+
+    const refreshSeconds = clampNumber(
+      config.get("rolloutRefreshSeconds", 30),
+      10,
+      3600
+    );
+
+    ccRefreshTimer = setInterval(() => {
+      void refreshClaudeCodeBars();
+    }, refreshSeconds * 1000);
+  }
+
+  function startJSONLWatcher() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("claudeCode.enabled", true)) return null;
+    const ccHomePath = expandHomeDirectory(config.get("claudeCode.homePath", "~/.claude"));
+    const projectsPath = path.join(ccHomePath, "projects");
+    let debounce;
+    try {
+      const watcher = fs.watch(projectsPath, { recursive: true }, (_, filename) => {
+        if (filename && filename.endsWith(".jsonl")) {
+          clearTimeout(debounce);
+          debounce = setTimeout(() => void refreshClaudeCodeBars(), 800);
+        }
+      });
+      return watcher;
+    } catch {
+      return null;
+    }
+  }
+
+  function resetJSONLWatcher() {
+    if (jsonlWatcher) { jsonlWatcher.close(); jsonlWatcher = null; }
+    jsonlWatcher = startJSONLWatcher();
   }
 
   function resetUsageRefreshTimer() {
@@ -183,46 +412,319 @@ function activate(context) {
     }, refreshSeconds * 1000);
   }
 
+  function resetPetNotificationMonitor() {
+    if (petNotificationTimer) {
+      clearInterval(petNotificationTimer);
+      petNotificationTimer = undefined;
+    }
+
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false) || !config.get("petAutoWake.desktopPet.enabled", true)) {
+      return;
+    }
+
+    petNotificationTimer = setInterval(() => {
+      void pollCodexPetNotifications();
+    }, 3000);
+    void pollCodexPetNotifications();
+  }
+
+  async function pollCodexPetNotifications() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false) || !config.get("petAutoWake.desktopPet.enabled", true)) {
+      return;
+    }
+
+    const codexHomePath = expandHomePath(config.get("codexHomePath", "~/.codex"));
+    const sessionsPath = path.join(codexHomePath, "sessions");
+    let files;
+    try {
+      files = await findJsonlFiles(sessionsPath);
+    } catch {
+      return;
+    }
+
+    const nowMs = Date.now();
+    for (const filePath of files) {
+      let stat;
+      try {
+        stat = await fsp.stat(filePath);
+      } catch {
+        continue;
+      }
+
+      let offset = petNotificationOffsets.get(filePath);
+      if (offset === undefined && stat.mtimeMs < nowMs - 10_000) {
+        petNotificationOffsets.set(filePath, stat.size);
+        continue;
+      }
+
+      offset = offset ?? 0;
+      if (stat.size <= offset) {
+        continue;
+      }
+
+      try {
+        const handle = await fsp.open(filePath, "r");
+        const length = stat.size - offset;
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, offset);
+        await handle.close();
+        petNotificationOffsets.set(filePath, stat.size);
+
+        const state = petNotificationFileStates.get(filePath) || {};
+        petNotificationFileStates.set(filePath, state);
+        for (const line of buffer.toString("utf8").split(/\r?\n/)) {
+          if (!line.trim()) {
+            continue;
+          }
+          const event = createNotificationEventFromCodexEvent(JSON.parse(line), state, {
+            fileKey: filePath,
+            nowMs
+          });
+          if (event) {
+            await appendPetEvent(codexHomePath, event);
+          }
+        }
+      } catch {
+        petNotificationOffsets.set(filePath, stat.size);
+      }
+    }
+  }
+
   function refreshAll() {
     const snapshot = store.getSnapshot();
     renderStatusBar(statusBar, snapshot);
     provider.refresh(snapshot);
   }
 
-  async function openAnotherCodexAgent() {
+  async function openCodexAgents(count) {
+    await repairPetAutoWakeIfEnabled({ quiet: true });
+
     const availableCommands = await vscode.commands.getCommands(true);
     if (!availableCommands.includes(CODEX_NEW_AGENT_COMMAND)) {
       vscode.window.showErrorMessage("Codex quick launcher could not find the OpenAI Codex command.");
       return false;
     }
 
-    try {
-      await vscode.commands.executeCommand(CODEX_NEW_AGENT_COMMAND);
-    } catch (error) {
-      vscode.window.showErrorMessage(`Failed to open a new Codex Agent: ${formatLaunchErrorMessage(error)}`);
-      return false;
-    }
+    const targetCount = Math.max(1, Math.floor(Number(count) || 1));
 
-    if (availableCommands.includes(CODEX_OPEN_SIDEBAR_COMMAND)) {
+    for (let index = 0; index < targetCount; index += 1) {
       try {
-        await vscode.commands.executeCommand(CODEX_OPEN_SIDEBAR_COMMAND);
-        return true;
+        await vscode.commands.executeCommand(
+          "vscode.openWith",
+          createCodexPanelUri(),
+          CODEX_CUSTOM_EDITOR_VIEW_TYPE,
+          {
+            viewColumn: vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.Active,
+            preserveFocus: false,
+            preview: false
+          }
+        );
       } catch (error) {
-        vscode.window.showWarningMessage(`Opened a new Codex Agent, but could not refocus the Codex sidebar: ${formatLaunchErrorMessage(error)}`);
+        vscode.window.showErrorMessage(
+          `Failed to open Codex Agent ${index + 1} of ${targetCount}: ${formatLaunchErrorMessage(error)}`
+        );
+        return false;
       }
     }
 
-    try {
-      await vscode.commands.executeCommand(EXPLORER_VIEW_COMMAND);
-    } catch {
-      // Ignore focus fallback failures. The new Codex Agent has already been created.
+    const focusCommand = choosePostLaunchFocusCommand(availableCommands);
+    if (focusCommand) {
+      try {
+        await vscode.commands.executeCommand(focusCommand);
+      } catch (error) {
+        vscode.window.showWarningMessage(
+          `Opened ${targetCount} Codex Agent${targetCount === 1 ? "" : "s"}, but could not switch away from Codex+: ${formatLaunchErrorMessage(error)}`
+        );
+      }
     }
 
     return true;
   }
+
+  function createCodexPanelUri() {
+    return vscode.Uri.file(CODEX_PANEL_ROUTE_PATH).with({
+      scheme: CODEX_PANEL_SCHEME,
+      authority: CODEX_PANEL_AUTHORITY,
+      query: createCodexPanelQuery(createId())
+    });
+  }
+
+  async function focusExistingCodexTab() {
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (
+          tab.input instanceof vscode.TabInputCustom &&
+          tab.input.viewType === CODEX_CUSTOM_EDITOR_VIEW_TYPE
+        ) {
+          try {
+            await vscode.commands.executeCommand(
+              "vscode.openWith",
+              tab.input.uri,
+              CODEX_CUSTOM_EDITOR_VIEW_TYPE,
+              { viewColumn: group.viewColumn, preserveFocus: false, preview: false }
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  async function repairPetAutoWakeIfEnabled({ quiet } = { quiet: true }) {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.enabled", false)) {
+      return false;
+    }
+
+    try {
+      await enablePetAutoWake(getPetAutoWakeOptions());
+      await startDesktopPetIfEnabled();
+      return true;
+    } catch (error) {
+      if (!quiet || !petAutoWakeWarningShown) {
+        petAutoWakeWarningShown = true;
+        vscode.window.showWarningMessage(`Codex pet auto wake could not be repaired: ${formatLaunchErrorMessage(error)}`);
+      }
+      return false;
+    }
+  }
+
+  async function runPetAutoWakeCommand(action) {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    try {
+      if (action === "disable") {
+        const result = await disablePetAutoWake(getPetAutoWakeOptions());
+        await stopDesktopPet(getDesktopPetOptions());
+        await config.update("petAutoWake.enabled", false, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(
+          `Codex pet auto wake disabled${result.changed ? "" : " (already disabled)"}. chatgpt.openOnStartup was not changed.`
+        );
+        return;
+      }
+
+      const result = await enablePetAutoWake(getPetAutoWakeOptions());
+      const desktopPet = await startDesktopPetIfEnabled();
+      await config.update("petAutoWake.enabled", true, vscode.ConfigurationTarget.Global);
+      const verb = action === "repair" ? "repaired" : "enabled";
+      const state = result.changed ? "patched" : "already patched";
+      const startup = result.openOnStartupChanged ? "chatgpt.openOnStartup enabled." : "chatgpt.openOnStartup already enabled.";
+      const desktopState = desktopPet ? "Desktop pet launched." : "Desktop pet launch is disabled.";
+      vscode.window.showInformationMessage(
+        `Codex pet auto wake ${verb}: ${result.petId} is ${state}. ${startup} ${desktopState}`
+      );
+    } catch (error) {
+      vscode.window.showErrorMessage(`Codex pet auto wake failed: ${formatLaunchErrorMessage(error)}`);
+    }
+  }
+
+  function getPetAutoWakeOptions() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    return {
+      vscodeApi: vscode,
+      codexHomePath: config.get("codexHomePath", "~/.codex"),
+      petSlug: config.get("petAutoWake.petSlug", DEFAULT_PET_SLUG),
+      petId: config.get("petAutoWake.petId", DEFAULT_PET_ID),
+      webviewOverlayEnabled: config.get("petAutoWake.webviewOverlay.enabled", false)
+    };
+  }
+
+  async function startDesktopPetIfEnabled() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    if (!config.get("petAutoWake.desktopPet.enabled", true)) {
+      return null;
+    }
+
+    return startDesktopPet(getDesktopPetOptions());
+  }
+
+  function getDesktopPetOptions() {
+    const config = vscode.workspace.getConfiguration("codexHud");
+    return {
+      extensionPath: context.extensionPath,
+      codexHomePath: config.get("codexHomePath", "~/.codex"),
+      petSlug: config.get("petAutoWake.petSlug", DEFAULT_PET_SLUG),
+      codexUri: createPetOpenCodexUri(),
+      switchPetUriPrefix: createPetSwitchUriPrefix(),
+      notificationMode: config.get("petAutoWake.notificationMode", "critical"),
+      petSize: config.get("petAutoWake.desktopPet.size", 160)
+    };
+  }
+
+  function createPetOpenCodexUri() {
+    const extensionId = context.extension?.id || "local.codex-hud";
+    return vscode.Uri.from({
+      scheme: vscode.env.uriScheme || "vscode",
+      authority: extensionId,
+      path: PET_OPEN_CODEX_URI_PATH
+    }).toString();
+  }
+
+  function createPetSwitchUriPrefix() {
+    const extensionId = context.extension?.id || "local.codex-hud";
+    return vscode.Uri.from({
+      scheme: vscode.env.uriScheme || "vscode",
+      authority: extensionId,
+      path: PET_SWITCH_URI_PATH,
+      query: "slug="
+    }).toString();
+  }
+
+  async function switchPetFromUri(uri) {
+    const params = new URLSearchParams(uri.query || "");
+    const petSlug = normalizePetSlugForConfig(params.get("slug"));
+    if (!petSlug) {
+      vscode.window.showWarningMessage("Codex pet switch ignored: missing or invalid pet slug.");
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration("codexHud");
+    await Promise.all([
+      config.update("petAutoWake.petSlug", petSlug, vscode.ConfigurationTarget.Global),
+      config.update("petAutoWake.petId", `custom:${petSlug}`, vscode.ConfigurationTarget.Global)
+    ]);
+    vscode.window.showInformationMessage(`Codex pet switched to ${petSlug}.`);
+  }
 }
 
 function deactivate() {}
+
+async function findJsonlFiles(rootPath) {
+  const entries = await fsp.readdir(rootPath, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await findJsonlFiles(entryPath));
+    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
+function expandHomePath(targetPath) {
+  if (!targetPath || targetPath === "~") {
+    return os.homedir();
+  }
+  if (targetPath.startsWith("~/")) {
+    return path.join(os.homedir(), targetPath.slice(2));
+  }
+  return targetPath;
+}
+
+function normalizePetSlugForConfig(value) {
+  const rawValue = String(value || "").trim();
+  const withoutCustomPrefix = rawValue.startsWith("custom:") ? rawValue.slice("custom:".length) : rawValue;
+  if (!/^[a-z0-9][a-z0-9_-]*$/i.test(withoutCustomPrefix)) {
+    return "";
+  }
+  return withoutCustomPrefix;
+}
 
 function createStatusBarGroup() {
   return {
@@ -243,15 +745,26 @@ class CodexQuickLaunchProvider {
   }
 
   getChildren() {
-    const item = new vscode.TreeItem("Open another Codex Agent", vscode.TreeItemCollapsibleState.None);
-    item.description = "Fallback button";
-    item.tooltip = "Click the activity bar icon once to auto-open a new Codex Agent. If auto-launch is blocked, click this row.";
-    item.command = {
-      command: QUICK_OPEN_CODEX_AGENT_COMMAND,
-      title: "Open another Codex Agent"
-    };
-    item.iconPath = new vscode.ThemeIcon("add");
-    return [item];
+    return [
+      createQuickLaunchItem({
+        label: "Open new Codex tab",
+        tooltip: "Open one new Codex Agent editor tab.",
+        command: QUICK_OPEN_CODEX_AGENT_COMMAND,
+        title: "Open new Codex tab"
+      }),
+      createQuickLaunchItem({
+        label: "Open 3 Codex tabs",
+        tooltip: "Open three independent Codex Agent editor tabs.",
+        command: OPEN_THREE_CODEX_AGENTS_COMMAND,
+        title: "Open 3 Codex tabs"
+      }),
+      createQuickLaunchItem({
+        label: "Open 4 Codex tabs",
+        tooltip: "Open four independent Codex Agent editor tabs.",
+        command: OPEN_FOUR_CODEX_AGENTS_COMMAND,
+        title: "Open 4 Codex tabs"
+      })
+    ];
   }
 
   markCurrentRevealConsumed() {
@@ -261,6 +774,17 @@ class CodexQuickLaunchProvider {
   resetCurrentReveal() {
     this.launchConsumedForCurrentReveal = false;
   }
+}
+
+function createQuickLaunchItem({ label, tooltip, command, title }) {
+  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+  item.tooltip = tooltip;
+  item.command = {
+    command,
+    title
+  };
+  item.iconPath = new vscode.ThemeIcon("add");
+  return item;
 }
 
 class CodexHudStore {
@@ -313,9 +837,11 @@ class CodexHudStore {
         extraUsageEnabled: Boolean(config.get("extraUsageEnabled", false)),
         extraUsageLabel: config.get("extraUsageLabel", "Extra usage not enabled"),
         source: {
-          mode: autoUsage ? "codex-rollout" : "manual",
+          mode: autoUsage ? (autoUsage.planType === "claude-code" ? "claude-code" : "codex-rollout") : "manual",
           description: autoUsage
-            ? `Auto-synced from ${path.basename(autoUsage.filePath)}`
+            ? (autoUsage.planType === "claude-code"
+                ? `Claude Code · ${path.basename(autoUsage.filePath)}`
+                : `Auto-synced from ${path.basename(autoUsage.filePath)}`)
             : "Manual values from Codex HUD settings",
           lastSyncedAt: autoUsage?.syncedAt ?? null,
           planType: autoUsage?.planType ?? null,
@@ -764,6 +1290,12 @@ function themeColorForStatus(status) {
   }
 }
 
+function themeColorForMetric(status, okThemeColor) {
+  if (status === "danger") return new vscode.ThemeColor("charts.red");
+  if (status === "warn") return new vscode.ThemeColor("charts.yellow");
+  return new vscode.ThemeColor(okThemeColor);
+}
+
 function buildStatusTooltip(snapshot) {
   const session = `${Math.round(snapshot.usage.session.remainingPercent)}%`;
   const week = `${Math.round(snapshot.usage.weekly.remainingPercent)}%`;
@@ -1082,6 +1614,293 @@ function expandHomeDirectory(targetPath) {
 
   return targetPath;
 }
+
+// ── Claude Code data source ────────────────────────────────────────────────
+
+async function findLatestClaudeProjectJsonl(projectsPath, limit) {
+  const candidates = [];
+  const projectDirs = await readDirectoryEntries(projectsPath);
+
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory()) {
+      continue;
+    }
+
+    const projectPath = path.join(projectsPath, projectDir.name);
+    const files = await readDirectoryEntries(projectPath);
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const filePath = path.join(projectPath, file.name);
+      try {
+        const stat = await fsp.stat(filePath);
+        candidates.push({ filePath, mtimeMs: stat.mtimeMs });
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
+  return candidates
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(0, limit)
+    .map((entry) => entry.filePath);
+}
+
+async function extractLatestContextFromClaudeJsonl(filePath) {
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  const lines = raw.split(/\r?\n/);
+  const seenIds = new Set();
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim();
+    if (!line) {
+      continue;
+    }
+
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (event?.type !== "assistant") {
+      continue;
+    }
+
+    const msg = event.message;
+    if (!msg) {
+      continue;
+    }
+
+    const msgId = msg.id;
+    if (!msgId || seenIds.has(msgId)) {
+      continue;
+    }
+
+    seenIds.add(msgId);
+
+    const usage = msg.usage;
+    if (!usage || !("input_tokens" in usage)) {
+      continue;
+    }
+
+    const totalContext =
+      nonNegativeNumber(usage.input_tokens || 0) +
+      nonNegativeNumber(usage.cache_creation_input_tokens || 0) +
+      nonNegativeNumber(usage.cache_read_input_tokens || 0);
+
+    if (totalContext > 0) {
+      return { contextTokens: totalContext, filePath };
+    }
+  }
+
+  return null;
+}
+
+async function calculateClaudeCodeSessionUsedPercent(projectsPath, sessionTokenLimit) {
+  const fiveHoursAgoMs = Date.now() - 5 * 60 * 60 * 1000;
+  const projectDirs = await readDirectoryEntries(projectsPath);
+  const seenMsgIds = new Set();
+  let totalSessionTokens = 0;
+
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory()) {
+      continue;
+    }
+
+    const projectPath = path.join(projectsPath, projectDir.name);
+    const files = await readDirectoryEntries(projectPath);
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const filePath = path.join(projectPath, file.name);
+      try {
+        const stat = await fsp.stat(filePath);
+        if (stat.mtimeMs < fiveHoursAgoMs) {
+          continue;
+        }
+
+        const raw = await fsp.readFile(filePath, "utf8");
+        for (const line of raw.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            continue;
+          }
+
+          let event;
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+
+          if (event?.type !== "assistant") {
+            continue;
+          }
+
+          const msg = event.message;
+          if (!msg?.id || !msg?.usage) {
+            continue;
+          }
+
+          if (seenMsgIds.has(msg.id)) {
+            continue;
+          }
+
+          seenMsgIds.add(msg.id);
+
+          const { output_tokens = 0, input_tokens = 0, cache_creation_input_tokens = 0 } = msg.usage;
+          totalSessionTokens += output_tokens + input_tokens + cache_creation_input_tokens;
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
+  return clampNumber((totalSessionTokens / Math.max(1, sessionTokenLimit)) * 100, 0, 100);
+}
+
+function getMostRecentThursdayResetMs() {
+  // Anthropic weekly resets every Thursday 10:00am Asia/Shanghai (UTC+8 = 02:00 UTC)
+  const now = Date.now();
+  const utc8Now = new Date(now + 8 * 3600 * 1000);
+  const dayOfWeek = utc8Now.getUTCDay(); // 0=Sun, 4=Thu
+  const daysSinceThursday = (dayOfWeek + 3) % 7; // 0 on Thu, 1 on Fri, ..., 6 on Wed
+  const resetUtc8 = new Date(utc8Now);
+  resetUtc8.setUTCDate(utc8Now.getUTCDate() - daysSinceThursday);
+  resetUtc8.setUTCHours(10, 0, 0, 0); // 10:00am UTC+8
+  const resetMs = resetUtc8.getTime() - 8 * 3600 * 1000; // back to UTC ms
+  // If reset time is in the future (shouldn't happen but guard), go back 7 days
+  return resetMs > now ? resetMs - 7 * 24 * 3600 * 1000 : resetMs;
+}
+
+async function calculateClaudeCodeWeeklyUsedPercent(projectsPath, weeklyTokenLimit) {
+  const weekStartMs = getMostRecentThursdayResetMs();
+  const projectDirs = await readDirectoryEntries(projectsPath);
+  const seenMsgIds = new Set();
+  let totalWeeklyTokens = 0;
+
+  for (const projectDir of projectDirs) {
+    if (!projectDir.isDirectory()) {
+      continue;
+    }
+
+    const projectPath = path.join(projectsPath, projectDir.name);
+    const files = await readDirectoryEntries(projectPath);
+
+    for (const file of files) {
+      if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const filePath = path.join(projectPath, file.name);
+      try {
+        const stat = await fsp.stat(filePath);
+        if (stat.mtimeMs < weekStartMs) {
+          continue;
+        }
+
+        const raw = await fsp.readFile(filePath, "utf8");
+        for (const line of raw.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            continue;
+          }
+
+          let event;
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+
+          if (event?.type !== "assistant") {
+            continue;
+          }
+
+          const msg = event.message;
+          if (!msg?.id || !msg?.usage) {
+            continue;
+          }
+
+          if (seenMsgIds.has(msg.id)) {
+            continue;
+          }
+
+          seenMsgIds.add(msg.id);
+
+          const { output_tokens = 0, input_tokens = 0, cache_creation_input_tokens = 0 } = msg.usage;
+          totalWeeklyTokens += output_tokens + input_tokens + cache_creation_input_tokens;
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  }
+
+  return clampNumber((totalWeeklyTokens / Math.max(1, weeklyTokenLimit)) * 100, 0, 100);
+}
+
+async function readLatestClaudeCodeUsage(claudeHomePath, sessionTokenLimit, contextWindowTokens, weeklyTokenLimit) {
+  const projectsPath = path.join(claudeHomePath, "projects");
+
+  const latestFiles = await findLatestClaudeProjectJsonl(projectsPath, 6);
+  if (!latestFiles.length) {
+    throw new Error(`No Claude Code project JSONL files found in ${projectsPath}`);
+  }
+
+  let contextResult = null;
+  for (const filePath of latestFiles) {
+    contextResult = await extractLatestContextFromClaudeJsonl(filePath);
+    if (contextResult) {
+      break;
+    }
+  }
+
+  if (!contextResult) {
+    throw new Error(`No Claude Code usage data found in ${projectsPath}`);
+  }
+
+  const [sessionUsedPercent, weeklyUsedPercent] = await Promise.all([
+    calculateClaudeCodeSessionUsedPercent(projectsPath, sessionTokenLimit),
+    calculateClaudeCodeWeeklyUsedPercent(projectsPath, weeklyTokenLimit || sessionTokenLimit * 7)
+  ]);
+
+  return {
+    syncedAt: new Date().toISOString(),
+    filePath: contextResult.filePath,
+    planType: "claude-code",
+    session: {
+      usedPercent: sessionUsedPercent,
+      resetAt: null,
+      resetAtLabel: "5h window (estimated)"
+    },
+    weekly: {
+      usedPercent: weeklyUsedPercent,
+      resetAt: null,
+      resetAtLabel: "7 days (estimated)"
+    },
+    currentContextTokens: contextResult.contextTokens,
+    threadTotalTokens: 0,
+    modelContextWindow: contextWindowTokens
+  };
+}
+
+// ── end Claude Code ────────────────────────────────────────────────────────
 
 module.exports = {
   activate,
