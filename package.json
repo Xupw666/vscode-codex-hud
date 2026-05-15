@@ -17,20 +17,31 @@
     "vscode": "^1.88.0"
   },
   "scripts": {
-    "check": "node --check extension.js && node --check media/view.js"
+    "check": "node --check extension.js && node --check quickLauncher.js && node --check petAutoWake.js && node --check desktopPet.js && node --check codexNotifications.js && node --check media/view.js",
+    "build:desktop-pet": "clang -fobjc-arc desktop-pet/DuoTuanPet.m -framework Cocoa -o desktop-pet/DuoTuanPet",
+    "test": "node --test"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onUri",
     "onView:codexHud.dashboard",
+    "onView:codexHud.quickLauncher",
     "onCommand:codexHud.openPanel",
+    "onCommand:codexHud.quickOpenCodexAgent",
+    "onCommand:codexHud.openThreeCodexAgents",
+    "onCommand:codexHud.openFourCodexAgents",
+    "onCommand:codexHud.enablePetAutoWake",
+    "onCommand:codexHud.disablePetAutoWake",
+    "onCommand:codexHud.repairPetAutoWake",
     "onCommand:codexHud.refreshUsage",
     "onCommand:codexHud.captureSelection",
     "onCommand:codexHud.setSessionUsage",
     "onCommand:codexHud.setWeeklyUsage",
-    "onCommand:codexHud.clearContext"
+    "onCommand:codexHud.clearContext",
+    "onCommand:codexHud.refreshFromClipboard"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -44,6 +55,36 @@
         "command": "codexHud.captureSelection",
         "category": "Codex HUD",
         "title": "Capture Selection as Context"
+      },
+      {
+        "command": "codexHud.quickOpenCodexAgent",
+        "category": "Codex HUD",
+        "title": "Open Another Codex Agent"
+      },
+      {
+        "command": "codexHud.openThreeCodexAgents",
+        "category": "Codex HUD",
+        "title": "Open 3 Codex Agents"
+      },
+      {
+        "command": "codexHud.openFourCodexAgents",
+        "category": "Codex HUD",
+        "title": "Open 4 Codex Agents"
+      },
+      {
+        "command": "codexHud.enablePetAutoWake",
+        "category": "Codex HUD",
+        "title": "Enable Pet Auto Wake"
+      },
+      {
+        "command": "codexHud.disablePetAutoWake",
+        "category": "Codex HUD",
+        "title": "Disable Pet Auto Wake"
+      },
+      {
+        "command": "codexHud.repairPetAutoWake",
+        "category": "Codex HUD",
+        "title": "Repair Pet Auto Wake"
       },
       {
         "command": "codexHud.refreshUsage",
@@ -64,6 +105,11 @@
         "command": "codexHud.clearContext",
         "category": "Codex HUD",
         "title": "Clear Stored Context"
+      },
+      {
+        "command": "codexHud.refreshFromClipboard",
+        "category": "Codex HUD",
+        "title": "Refresh CC Usage from Clipboard (/usage)"
       }
     ],
     "configuration": {
@@ -150,10 +196,90 @@
           "type": "string",
           "default": "~/.codex",
           "description": "Path to the local Codex home directory used for rollout history."
+        },
+        "codexHud.claudeCode.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Read context and session usage from Claude Code (~/.claude) when Codex rollout data is unavailable."
+        },
+        "codexHud.claudeCode.homePath": {
+          "type": "string",
+          "default": "~/.claude",
+          "description": "Path to the Claude Code home directory."
+        },
+        "codexHud.claudeCode.sessionTokenLimit": {
+          "type": "number",
+          "default": 8000000,
+          "minimum": 10000,
+          "description": "Estimated 5-hour token limit for Claude Code session usage. Max(5x) plan ≈ 8000000. Standard plan ≈ 1000000."
+        },
+        "codexHud.claudeCode.contextWindowTokens": {
+          "type": "number",
+          "default": 200000,
+          "minimum": 1000,
+          "description": "Context window size in tokens for the Claude Code model (200k for claude-sonnet-4-6)."
+        },
+        "codexHud.claudeCode.weeklyTokenLimit": {
+          "type": "number",
+          "default": 50000000,
+          "minimum": 10000,
+          "description": "Estimated weekly token budget for Claude Code (last 7 days). Max(5x) plan ≈ 50000000. Standard plan ≈ 7000000."
+        },
+        "codexHud.petAutoWake.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically keep the local Codex pet wake patch applied on VS Code startup."
+        },
+        "codexHud.petAutoWake.petSlug": {
+          "type": "string",
+          "default": "duotuan",
+          "description": "Folder name under ~/.codex/pets or bundled pets/ for the pet that should wake by default."
+        },
+        "codexHud.petAutoWake.petId": {
+          "type": "string",
+          "default": "custom:duotuan",
+          "description": "OpenAI Codex avatar id to select by default when waking the pet."
+        },
+        "codexHud.petAutoWake.desktopPet.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Launch the draggable desktop pet helper when Codex auto wake is enabled."
+        },
+        "codexHud.petAutoWake.desktopPet.size": {
+          "type": "number",
+          "default": 160,
+          "minimum": 96,
+          "maximum": 280,
+          "description": "Default desktop pet width in pixels. The pet keeps its Codex 192:208 sprite ratio."
+        },
+        "codexHud.petAutoWake.notificationMode": {
+          "type": "string",
+          "default": "critical",
+          "enum": [
+            "critical",
+            "progress"
+          ],
+          "enumDescriptions": [
+            "Only show desktop pet bubbles when Codex needs confirmation or a task completes.",
+            "Also show task start and throttled progress bubbles."
+          ],
+          "description": "Desktop pet notification mode."
+        },
+        "codexHud.petAutoWake.webviewOverlay.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also inject an in-webview pet fallback inside Codex panels."
         }
       }
     },
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codexHudLauncher",
+          "title": "Codex +",
+          "icon": "media/blossom-white.svg"
+        }
+      ],
       "panel": [
         {
           "id": "codexHudPanel",
@@ -163,11 +289,26 @@
       ]
     },
     "views": {
+      "codexHudLauncher": [
+        {
+          "id": "codexHud.quickLauncher",
+          "name": "Quick Launch"
+        }
+      ],
       "codexHudPanel": [
         {
           "type": "webview",
           "id": "codexHud.dashboard",
           "name": "Codex HUD"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "codexHud.quickOpenCodexAgent",
+          "when": "view == codexHud.quickLauncher",
+          "group": "navigation"
         }
       ]
     }
